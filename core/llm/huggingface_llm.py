@@ -140,10 +140,10 @@ class HuggingFaceCausalLM(HuggingFaceBase, Runnable):
         # 🔹 تحديد الجهاز: GPU لو متاح، غير كده CPU
         if torch.cuda.is_available():
             self.device = "cuda"
-            model_load_kwargs["device_map"] = "auto"  # يستخدم accelerate لتوزيع الموديل
+            # model_load_kwargs["device_map"] = "auto"  # يستخدم accelerate لتوزيع الموديل
         else:
             self.device = "cpu"
-            model_load_kwargs["device_map"] = None  # تحميل يدوي بدون accelerate
+            # model_load_kwargs["device_map"] = None  # تحميل يدوي بدون accelerate
 
         # 🔹 تحديد نوع الـ dtype أو quantization
         if quant_config:
