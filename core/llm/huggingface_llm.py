@@ -1,4 +1,3 @@
-# hf_manager.py
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -11,8 +10,6 @@ import torch
 
 from core.config.logging_config import log_info, log_error, log_debug, log_warning
 from core.utils.cache_utils import ResultCache, ModelLRUStore
-
-
 
 # -----------------------------
 # Base class: shared logic
@@ -124,39 +121,69 @@ class HuggingFaceBase:
 class HuggingFaceCausalLM(HuggingFaceBase, Runnable):
     """
     Standalone Causal LM wrapper.
-    Only model-specific logic lives here (loading CausalLM, pipeline type, generate wrapper).
+    Handles loading, pipeline creation, and generation logic.
+    Automatically uses GPU if available, else CPU.
     """
     def __init__(self, model_id: str, **kwargs):
-        # delegate common init to base
         super().__init__(model_id, **kwargs)
+
         log_info(f"[CausalLM] Loading model weights for {model_id}")
+
         quant_config = self._get_quant_config()
 
+        # إعدادات التحميل الأساسية
         model_load_kwargs: Dict[str, Any] = {
             "trust_remote_code": self.trust_remote_code,
-            "device_map": self.device_map,
             "cache_dir": self.cache_dir,
         }
+
+        # 🔹 تحديد الجهاز: GPU لو متاح، غير كده CPU
+        if torch.cuda.is_available():
+            self.device = "cuda"
+            model_load_kwargs["device_map"] = "auto"  # يستخدم accelerate لتوزيع الموديل
+        else:
+            self.device = "cpu"
+            model_load_kwargs["device_map"] = None  # تحميل يدوي بدون accelerate
+
+        # 🔹 تحديد نوع الـ dtype أو quantization
         if quant_config:
             model_load_kwargs["quantization_config"] = quant_config
         else:
             model_load_kwargs["torch_dtype"] = self.torch_dtype
+
         if self.max_memory:
             model_load_kwargs["max_memory"] = self.max_memory
-        # merge any extra kwargs
+
+        # دمج أي إعدادات إضافية من kwargs
         model_load_kwargs.update(self.kwargs or {})
 
-        # load model
+        # 🧠 تحميل الموديل
         self.model = AutoModelForCausalLM.from_pretrained(self.model_id, **model_load_kwargs)
 
-        # pipeline device index: 0 for first CUDA, else -1
-        pipe_device = 0 if self.device == "cuda" else -1
-        # use text-generation pipeline (wraps tokenization/generation/decoding)
-        self.pipe = pipeline("text-generation", model=self.model, tokenizer=self.tokenizer, device=pipe_device)
+        # 🔹 إعداد الـ pipeline
+        # ملاحظة: لو استخدمنا accelerate (device_map="auto")، لا نمرر device
+        if model_load_kwargs.get("device_map") == "auto":
+            self.pipe = pipeline(
+                "text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer,
+            )
+        else:
+            # لو CPU أو تحميل يدوي، نحدد الجهاز
+            pipe_device = 0 if self.device == "cuda" else -1
+            self.pipe = pipeline(
+                "text-generation",
+                model=self.model,
+                tokenizer=self.tokenizer,
+                device=pipe_device,
+            )
+
         log_info(f"[CausalLM] Model {model_id} ready (device={self.device})")
 
+    # -------------------------
+    # توليد النصوص (generation)
+    # -------------------------
     def _normalize_gen_kwargs(self, **kwargs) -> Dict[str, Any]:
-        # default generation hyperparams; caller can override
         defaults = dict(
             max_new_tokens=256,
             temperature=0.7,
@@ -179,15 +206,8 @@ class HuggingFaceCausalLM(HuggingFaceBase, Runnable):
         result_cache: Optional[ResultCache] = None,
         **generation_kwargs
     ) -> Union[str, List[str]]:
-        """
-        Generate text. This method:
-         - supports single or list prompts
-         - can use result-level cache (ResultCache) to avoid repeated generation
-        """
-        # build key for caching
         key = None
         if use_cache and result_cache is not None:
-            # canonicalize kwargs for hashing
             k_items = tuple(sorted(generation_kwargs.items()))
             key = (self.model_id, prompt if isinstance(prompt, str) else tuple(prompt), k_items)
             cached = result_cache.get(key)
@@ -198,13 +218,11 @@ class HuggingFaceCausalLM(HuggingFaceBase, Runnable):
         gen_kwargs = self._normalize_gen_kwargs(**generation_kwargs)
         try:
             results = self.pipe(prompt, **gen_kwargs)
-            # pipeline returns list(s) of dicts; unify
             if isinstance(prompt, str):
                 outs = self._process_pipeline_result(results, prompt if remove_prompt else None)
             else:
                 outs = [self._process_pipeline_result(res, pr if remove_prompt else None)
                         for res, pr in zip(results, prompt)]
-            # store in cache if requested
             if key is not None:
                 result_cache.set(key, outs)
             return outs
@@ -213,9 +231,7 @@ class HuggingFaceCausalLM(HuggingFaceBase, Runnable):
             raise
 
     def _process_pipeline_result(self, result: Union[List[Dict], Dict], prompt: Optional[str] = None) -> Union[str, List[str]]:
-        # pipeline may return list or dict
         if isinstance(result, dict):
-            # single output
             text = result.get("generated_text", "")
             if prompt and text.startswith(prompt):
                 text = text[len(prompt):]
@@ -231,15 +247,12 @@ class HuggingFaceCausalLM(HuggingFaceBase, Runnable):
         else:
             return str(result)
 
-    # alias for Runnable
     def __call__(self, prompt: str, **kwargs):
         return self.invoke(prompt, **kwargs)
 
     def unload(self):
-        # specialized unload: attempt to delete model and call GC
         try:
             if self.model is not None:
-                # move to cpu then delete
                 try:
                     self.model.to("cpu")
                 except Exception:
@@ -250,7 +263,6 @@ class HuggingFaceCausalLM(HuggingFaceBase, Runnable):
             log_info(f"[CausalLM] Unloaded {self.model_id}")
         except Exception as e:
             log_warning(f"[CausalLM] Unload error: {e}")
-
 
 # -----------------------------
 # ModelManager: single entrypoint to manage multiple models (LRU eviction)
