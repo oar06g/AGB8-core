@@ -335,34 +335,34 @@ class ModelManager:
 # Example usage (for testing)
 # -----------------------------
 # if __name__ == "__main__":
-#     # NOTE: in real usage, use local cached models or HF tokens if private models.
-#     manager = ModelManager(max_models_loaded=2, result_cache_size=512, result_ttl=3600)
+    # # NOTE: in real usage, use local cached models or HF tokens if private models.
+    # manager = ModelManager(max_models_loaded=2, result_cache_size=512, result_ttl=3600)
 
-#     # load small model for quick testing (use a small HF model name you have)
-#     model_id = "gpt2"  # replace with a model you have/allow
-#     try:
-#         # load model (first time)
-#         m = manager.load_model(model_id, model_type="causal", use_quantization=False, cache_dir=None)
+    # # load small model for quick testing (use a small HF model name you have)
+    # model_id = "gpt2"  # replace with a model you have/allow
+    # try:
+    #     # load model (first time)
+    #     m = manager.load_model(model_id, model_type="causal", use_quantization=False, cache_dir=None)
 
-#         # single generation
-#         out = manager.generate(model_id, "Hello, how are you?", max_new_tokens=40)
-#         print("OUT:", out)
+    #     # single generation
+    #     out = manager.generate(model_id, "Hello, how are you?", max_new_tokens=40)
+    #     print("OUT:", out)
 
-#         # batch generation
-#         prompts = ["Artificial intelligence is", "Programming means", "The future will be"]
-#         outs = manager.generate(model_id, prompts, max_new_tokens=20, num_return_sequences=1)
-#         print("BATCH OUTS:", outs)
+    #     # batch generation
+    #     prompts = ["Artificial intelligence is", "Programming means", "The future will be"]
+    #     outs = manager.generate(model_id, prompts, max_new_tokens=20, num_return_sequences=1)
+    #     print("BATCH OUTS:", outs)
 
-#         # list loaded
-#         print("Loaded models:", manager.list_loaded())
+    #     # list loaded
+    #     print("Loaded models:", manager.list_loaded())
 
-#         # use result cache: same prompt should be cached
-#         out2 = manager.generate(model_id, "Hello, how are you?", max_new_tokens=40)
-#         print("OUT (cached):", out2)
+    #     # use result cache: same prompt should be cached
+    #     out2 = manager.generate(model_id, "Hello, how are you?", max_new_tokens=40)
+    #     print("OUT (cached):", out2)
 
-#         # unload
-#         manager.unload_model(model_id)
-#         print("After unload, loaded:", manager.list_loaded())
+    #     # unload
+    #     manager.unload_model(model_id)
+    #     print("After unload, loaded:", manager.list_loaded())
 
-#     except Exception as e:
-#         log_error(f"Example run failed: {e}")
+    # except Exception as e:
+    #     log_error(f"Example run failed: {e}")
