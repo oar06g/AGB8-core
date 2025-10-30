@@ -26,9 +26,9 @@ class HuggingFaceBase:
     def __init__(
         self,
         model_id: str,
+        device_map: str = "cpu",  # جعلته optional مع افتراضي "cpu" عشان مرونة وتجنب أخطاء
         use_quantization: bool = False,
         quantization_bits: int = 4,
-        device_map: str = "auto",
         torch_dtype: Optional[torch.dtype] = None,
         trust_remote_code: bool = False,
         load_in_8bit: bool = False,
@@ -43,7 +43,7 @@ class HuggingFaceBase:
         self.cache_dir = cache_dir
         self.use_quantization = use_quantization
         self.quantization_bits = quantization_bits
-        self.device_map = device_map
+        self.device_map = device_map  # حفظ device_map (cuda أو cpu فقط، بدون auto)
         self.torch_dtype = torch_dtype or (torch.float16 if self.device != "cpu" else torch.float32)
         self.kwargs = kwargs
         self.max_memory = max_memory
@@ -125,7 +125,13 @@ class HuggingFaceCausalLM(HuggingFaceBase, Runnable):
     Automatically uses GPU if available, else CPU.
     """
     def __init__(self, model_id: str, **kwargs):
-        super().__init__(model_id, **kwargs)
+        # 🔹 تحديد device_map: auto لو GPU متاح (لـ accelerate)، غير كده cpu
+        device_map = kwargs.get("device_map")  # لو مرر يدوياً، استخدمه
+        if device_map is None:
+            device_map = "auto" if torch.cuda.is_available() else "cpu"
+
+        # نداء super مع تمرير device_map صراحة
+        super().__init__(model_id, device_map=device_map, **kwargs)
 
         log_info(f"[CausalLM] Loading model weights for {model_id}")
 
@@ -137,19 +143,14 @@ class HuggingFaceCausalLM(HuggingFaceBase, Runnable):
             "cache_dir": self.cache_dir,
         }
 
-        # 🔹 تحديد الجهاز: GPU لو متاح، غير كده CPU
-        if torch.cuda.is_available():
-            self.device = "cuda"
-            # model_load_kwargs["device_map"] = "auto"  # يستخدم accelerate لتوزيع الموديل
-        else:
-            self.device = "cpu"
-            # model_load_kwargs["device_map"] = None  # تحميل يدوي بدون accelerate
+        # 🔹 استخدام device_map المحدد (auto أو cpu)
+        model_load_kwargs["device_map"] = self.device_map  # يستخدم accelerate إذا auto
 
         # 🔹 تحديد نوع الـ dtype أو quantization
         if quant_config:
             model_load_kwargs["quantization_config"] = quant_config
         else:
-            model_load_kwargs["torch_dtype"] = self.torch_dtype
+            model_load_kwargs["dtype"] = self.torch_dtype
 
         if self.max_memory:
             model_load_kwargs["max_memory"] = self.max_memory
@@ -160,23 +161,12 @@ class HuggingFaceCausalLM(HuggingFaceBase, Runnable):
         # 🧠 تحميل الموديل
         self.model = AutoModelForCausalLM.from_pretrained(self.model_id, **model_load_kwargs)
 
-        # 🔹 إعداد الـ pipeline
-        # ملاحظة: لو استخدمنا accelerate (device_map="auto")، لا نمرر device
-        if model_load_kwargs.get("device_map") == "auto":
-            self.pipe = pipeline(
-                "text-generation",
-                model=self.model,
-                tokenizer=self.tokenizer,
-            )
-        else:
-            # لو CPU أو تحميل يدوي، نحدد الجهاز
-            pipe_device = 0 if self.device == "cuda" else -1
-            self.pipe = pipeline(
-                "text-generation",
-                model=self.model,
-                tokenizer=self.tokenizer,
-                device=pipe_device,
-            )
+        # 🔹 إعداد الـ pipeline بدون تحديد device (لأن accelerate يدير لو device_map="auto")
+        self.pipe = pipeline(
+            "text-generation",
+            model=self.model,
+            tokenizer=self.tokenizer,
+        )
 
         log_info(f"[CausalLM] Model {model_id} ready (device={self.device})")
 
