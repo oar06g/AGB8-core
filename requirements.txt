@@ -2,3 +2,4 @@ transformers
 langchain
 torch
 langchain-core
+python-dotenv
