@@ -14,6 +14,7 @@ __pycache__/
 learn.py
 model.py
 new1.py
+tips/
 
 # Distribution / packaging
 .Python
@@ -120,6 +121,7 @@ ipython_config.py
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/
+
 
 # Celery stuff
 celerybeat-schedule
